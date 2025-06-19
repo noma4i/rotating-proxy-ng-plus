@@ -1,0 +1,13 @@
+version: '3'
+
+services:
+  proxy:
+    build:
+      context: .
+    ports:
+      - "5566:5566"
+      - "4444:4444"
+    environment:
+      - tors=5
+    volumes:
+      - ./torrc:/etc/tor/torrc
