@@ -105,7 +105,7 @@ defaults
   timeout client 60s
   timeout server 60s
 
-listen stats
+frontend stats
   bind *:$STATS_PORT
   mode http
   maxconn 10
@@ -114,8 +114,8 @@ listen stats
   timeout connect      100s
   timeout queue   100s
   stats enable
-  stats hide-version
-  stats refresh 5s
+  stats admin if TRUE
+  stats refresh 10s
   stats show-node
   stats uri /haproxy?stats
 

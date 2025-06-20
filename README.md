@@ -17,6 +17,9 @@ docker-compose up -d
 
 # Test the proxy
 curl --proxy 127.0.0.1:5566 https://api.my-ip.io/v2/ip.json
+
+# View HAProxy statistics
+open http://127.0.0.1:4444/haproxy?stats
 ```
 
 ### Using Docker Run
@@ -40,7 +43,7 @@ docker build -t rotating-proxy-ng-plus .
 docker run -d -p 5566:5566 -p 4444:4444 rotating-proxy-ng-plus
 ```
 
-## Configuration
+## Configurationdd
 
 ### Environment Variables
 | Variable | Default | Description |
@@ -59,4 +62,15 @@ docker run -d \
   --env DEBUG=1 \
   --env PROXY_TIMEOUT=10 \
   noma4i/rotating-proxy-ng-plus
+```
+
+### HAProxy Web Statistics
+Access the HAProxy statistics dashboard at: **http://127.0.0.1:4444/haproxy?stats**
+
+### Testing Proxy Rotation
+```bash
+# Test multiple requests to see different IPs
+for i in {1..5}; do
+  curl --proxy 127.0.0.1:5566 -s https://api.my-ip.io/v2/ip.json | jq '.ip'
+done
 ```
