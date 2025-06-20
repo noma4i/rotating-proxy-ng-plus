@@ -15,4 +15,4 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Build the Docker image
-      run: docker build . --file Dockerfile --tag noma4i/rotating-proxy-ng-plus:latest
+      run: docker build --platform linux/amd64 -t noma4i/rotating-proxy-ng-plus:latest --push .
