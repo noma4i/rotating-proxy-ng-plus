@@ -1,7 +1,8 @@
 FROM alpine:latest
-RUN apk update
 
-RUN apk --no-cache add tor curl haproxy bash supervisor
+RUN apk update && apk --no-cache add tor curl haproxy bash supervisor \
+    && rm -rf /var/cache/apk/* \
+    && rm -rf /tmp/*
 
 ADD --chmod=755 start.sh /usr/local/bin/start.sh
 ADD --chmod=755 check_tor.sh /usr/local/bin/check_tor.sh
