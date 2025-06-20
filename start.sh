@@ -73,7 +73,7 @@ EOF
 
         cat >> /etc/supervisord.conf <<EOF
 [program:tor$i]
-command=tor --SocksPort 0 --HTTPTunnelPort $http_port --NewCircuitPeriod 7200 --MaxCircuitDirtiness 7200 --UseEntryGuards 0 --CircuitBuildTimeout 5 --ExitRelay 0 --RefuseUnknownExits 0 --ClientOnly 1 --CircuitPadding 0 --ConnectionPadding 0 --DataDirectory $data_dir --PidFile $pid_file --Log "warn syslog"
+command=tor --SocksPort 0 --HTTPTunnelPort $http_port --NewCircuitPeriod 15 --MaxCircuitDirtiness 15 --UseEntryGuards 0 --CircuitBuildTimeout 5 --ExitRelay 0 --RefuseUnknownExits 0 --ClientOnly 1 --CircuitPadding 0 --ConnectionPadding 0 --MaxMemInQueues 32MB --MaxUnusedOpenCircuits 4 --MaxClientCircuitsPending 8 --KeepalivePeriod 30 --DataDirectory $data_dir --PidFile $pid_file --Log "warn syslog"
 autostart=true
 autorestart=true
 startsecs=5
