@@ -7,6 +7,10 @@ TOR_INSTANCES=${tors:-10}
 HAPROXY_PORT=5566
 STATS_PORT=4444
 
+# Circuit rotation cadence (seconds). Lower = more frequent IP changes, more churn.
+NEW_CIRCUIT_PERIOD=${NEW_CIRCUIT_PERIOD:-30}
+MAX_CIRCUIT_DIRTINESS=${MAX_CIRCUIT_DIRTINESS:-30}
+
 # Logging function
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
@@ -16,8 +20,8 @@ log() {
 setup_directories() {
     log "Setting up directories"
 
-    # Supervisor directories
-    mkdir -p /var/log/supervisor /var/run
+    # Supervisor runtime directory (socket + pidfile). Logs go to stdout, not files.
+    mkdir -p /var/run
 
     # HAProxy directories
     mkdir -p /var/lib/haproxy /var/run/haproxy /var/log/haproxy
@@ -41,10 +45,9 @@ file=/var/run/supervisor.sock
 chmod=0700
 
 [supervisord]
-logfile=/var/log/supervisord.log
+logfile=/dev/null
 pidfile=/var/run/supervisord.pid
-childlogdir=/var/log/supervisor
-nodaemon=false
+nodaemon=true
 minfds=1024
 minprocs=200
 
@@ -60,8 +63,9 @@ autostart=true
 autorestart=true
 startsecs=5
 startretries=3
-stdout_logfile=/var/log/supervisor/haproxy.log
-stderr_logfile=/var/log/supervisor/haproxy.log
+stdout_logfile=/dev/fd/1
+stdout_logfile_maxbytes=0
+redirect_stderr=true
 
 EOF
 
@@ -73,13 +77,14 @@ EOF
 
         cat >> /etc/supervisord.conf <<EOF
 [program:tor$i]
-command=tor --SocksPort 0 --HTTPTunnelPort $http_port --NewCircuitPeriod 15 --MaxCircuitDirtiness 15 --UseEntryGuards 0 --CircuitBuildTimeout 5 --DataDirectory $data_dir --PidFile $pid_file --Log "warn syslog"
+command=tor --SocksPort 0 --HTTPTunnelPort $http_port --NewCircuitPeriod $NEW_CIRCUIT_PERIOD --MaxCircuitDirtiness $MAX_CIRCUIT_DIRTINESS --UseEntryGuards 0 --CircuitBuildTimeout 5 --MaxMemInQueues "64 MB" --DataDirectory $data_dir --PidFile $pid_file --Log "notice stdout"
 autostart=true
 autorestart=true
 startsecs=5
 startretries=999999
-stdout_logfile=/var/log/supervisor/tor$i.log
-stderr_logfile=/var/log/supervisor/tor$i.log
+stdout_logfile=/dev/fd/1
+stdout_logfile_maxbytes=0
+redirect_stderr=true
 
 EOF
     done
@@ -94,8 +99,6 @@ global
   maxconn 1024
   daemon
   pidfile /var/run/haproxy/haproxy.pid
-  external-check
-  insecure-fork-wanted
 
 defaults
   maxconn 1024
@@ -127,69 +130,17 @@ frontend rotating_proxies
 backend tor
   mode tcp
   balance roundrobin
-  option external-check
-  external-check path "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-  external-check command /usr/local/bin/check_tor.sh
 
 EOF
 
-    # Add backend servers
+    # Add backend servers. Plain TCP health-check (connect to the Tor HTTPTunnel
+    # port): a dead instance is pulled from rotation and Supervisor restarts it.
+    # (HAProxy 3.4 external-check segfaults on Alpine/musl, so no curl-based check.)
     for ((i=0; i<TOR_INSTANCES; i++)); do
         http_port=$((20000 + i))
         echo "  server tor$http_port 127.0.0.1:$http_port check inter 10s fastinter 5s downinter 5s rise 2 fall 2" >> /usr/local/etc/haproxy.cfg
     done
 }
-
-# Start Supervisor
-start_supervisor() {
-    log "Starting Supervisor to manage all processes"
-    /usr/bin/supervisord -c /etc/supervisord.conf
-
-    log "Waiting for all processes to initialize"
-    sleep 30
-
-    # Check status
-    supervisorctl status
-}
-
-# Monitor processes
-monitor() {
-    log "Starting monitoring loop"
-
-    while true; do
-        sleep 60
-
-        # Check if supervisor is running
-        if ! pgrep supervisord > /dev/null; then
-            log "ERROR: Supervisor died, exiting"
-            exit 1
-        fi
-
-        # Optional: Log status
-        if [ "$DEBUG" = "1" ]; then
-            log "Supervisor status:"
-            supervisorctl status 2>/dev/null || log "Failed to get supervisor status"
-        fi
-    done
-}
-
-# Cleanup function
-cleanup() {
-    log "Shutting down services"
-
-    # Stop all supervised processes
-    supervisorctl stop all 2>/dev/null || true
-
-    # Stop supervisor itself
-    if [ -f /var/run/supervisord.pid ]; then
-        kill $(cat /var/run/supervisord.pid) 2>/dev/null || true
-    fi
-
-    exit 0
-}
-
-# Handle signals
-trap cleanup TERM INT
 
 # Main execution
 main() {
@@ -198,8 +149,12 @@ main() {
     setup_directories
     generate_supervisor_config
     generate_haproxy_config
-    start_supervisor
-    monitor
+
+    # Hand off to supervisord in the foreground as the container's main process.
+    # It reaps and restarts children itself and forwards SIGTERM for graceful
+    # shutdown; Docker's restart policy is the single authority on container life.
+    log "Starting Supervisor (foreground) to manage all processes"
+    exec /usr/bin/supervisord -n -c /etc/supervisord.conf
 }
 
 # Run main function
